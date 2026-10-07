@@ -119,11 +119,11 @@ function buildStencil(options={}){
   if(remixed){
     const s = (+$('#variation').value || 35) / 100;
     const r1 = seeded(variantIndex*17+2), r2 = seeded(variantIndex*23+7), r3 = seeded(variantIndex*31+11), r4 = seeded(variantIndex*41+19);
-    const angle = ((r1*2-1) * 0.06 * (0.3+s));
-    const scale = 1 + ((r2*2-1) * 0.12 * (0.35+s));
-    const shiftX = (r3*2-1) * w * 0.07 * (0.3+s);
-    const shiftY = (r4*2-1) * h * 0.07 * (0.3+s);
-    const mirror = seeded(variantIndex*53+5) > 0.72;
+    const angle = ((r1*2-1) * 0.04 * (0.3+s));
+    const scale = 1 + ((r2*2-1) * 0.08 * (0.35+s));
+    const shiftX = (r3*2-1) * w * 0.05 * (0.3+s);
+    const shiftY = (r4*2-1) * h * 0.05 * (0.3+s);
+    const mirror = seeded(variantIndex*53+5) > 0.8;
     o.translate(w/2 + shiftX, h/2 + shiftY);
     o.rotate(angle);
     o.scale(mirror ? -scale : scale, scale);
@@ -133,33 +133,45 @@ function buildStencil(options={}){
   }
   o.restore();
 
-  let img = o.getImageData(0,0,w,h);
+  const img = o.getImageData(0,0,w,h);
   let gray = toGray(img.data, w, h);
 
   const detail = +$('#detail').value;
   const contrast = +$('#contrast').value;
   const cleanup = +$('#cleanup').value;
 
+  gray = autoContrast(gray);
   const sourceLooksClean = detectCleanArtwork(gray, w, h);
-  const blurRadius = sourceLooksClean ? Math.max(0, Math.round((25-cleanup)/25)) : Math.max(1, Math.round((55-detail)/22));
+  const blurRadius = sourceLooksClean
+    ? Math.max(0, Math.round((18-cleanup)/24))
+    : Math.max(1, Math.round((52-detail)/24));
   if(blurRadius>0) gray = boxBlur(gray, w, h, blurRadius);
 
   let threshold = otsuThreshold(gray);
-  threshold += Math.round((50-contrast) * 0.75);
-  threshold = Math.max(20, Math.min(235, threshold));
+  threshold += Math.round((50-contrast) * 0.65);
+  threshold = Math.max(18, Math.min(238, threshold));
 
   const darkForeground = estimateDarkForeground(gray, w, h);
+  const adaptiveRadius = Math.max(12, Math.round(Math.min(w,h) * (sourceLooksClean ? 0.035 : 0.028)));
+  const adaptiveBias = Math.max(0.06, Math.min(0.18,
+    (sourceLooksClean ? 0.085 : 0.11) + (50-contrast) / 650 - (detail-50) / 1200
+  ));
+  const localThresholds = localMeanThreshold(gray, w, h, adaptiveRadius, adaptiveBias);
+
   let mask = new Uint8Array(w*h);
   for(let i=0;i<gray.length;i++){
-    const isDark = gray[i] < threshold;
-    mask[i] = darkForeground ? (isDark ? 1 : 0) : (isDark ? 0 : 1);
+    const isDarkGlobal = gray[i] < threshold;
+    const isDarkLocal = gray[i] < localThresholds[i];
+    const foreground = darkForeground
+      ? (isDarkGlobal || isDarkLocal)
+      : (!(isDarkGlobal && isDarkLocal));
+    mask[i] = foreground ? 1 : 0;
   }
 
-  const blackMinArea = Math.max(16, Math.round((100-detail) * 1.2 + cleanup * 2));
-  const whiteMinArea = Math.max(10, Math.round(cleanup * 1.8 + (100-detail) * 0.8));
+  const blackMinArea = Math.max(10, Math.round((100-detail) * 0.9 + cleanup * 1.2));
+  const whiteMinArea = Math.max(8, Math.round(cleanup * 1.1 + (100-detail) * 0.45));
 
-  // Clean edges and remove speckles.
-  const cycles = cleanup > 70 ? 2 : 1;
+  const cycles = cleanup > 82 ? 2 : 1;
   for(let i=0;i<cycles;i++){
     mask = majorityPass(mask, w, h);
   }
@@ -219,6 +231,58 @@ function toGray(data,w,h){
   const gray = new Uint8Array(w*h);
   for(let i=0,j=0;i<data.length;i+=4,j++) gray[j] = Math.round(luminance(data[i],data[i+1],data[i+2]));
   return gray;
+}
+
+function autoContrast(gray){
+  const hist = new Uint32Array(256);
+  for(let i=0;i<gray.length;i++) hist[gray[i]]++;
+  const total = gray.length;
+  const lowCount = total * 0.01;
+  const highCount = total * 0.99;
+  let acc = 0, low = 0, high = 255;
+  for(let i=0;i<256;i++){
+    acc += hist[i];
+    if(acc >= lowCount){ low = i; break; }
+  }
+  acc = 0;
+  for(let i=0;i<256;i++){
+    acc += hist[i];
+    if(acc >= highCount){ high = i; break; }
+  }
+  if(high <= low + 10) return gray;
+  const out = new Uint8Array(gray.length);
+  const scale = 255 / (high - low);
+  for(let i=0;i<gray.length;i++){
+    const v = Math.max(0, Math.min(255, Math.round((gray[i] - low) * scale)));
+    out[i] = v;
+  }
+  return out;
+}
+
+function localMeanThreshold(gray,w,h,radius,bias){
+  const integral = new Float64Array((w+1) * (h+1));
+  for(let y=1;y<=h;y++){
+    let row = 0;
+    for(let x=1;x<=w;x++){
+      row += gray[(y-1)*w + (x-1)];
+      integral[y*(w+1)+x] = integral[(y-1)*(w+1)+x] + row;
+    }
+  }
+  const out = new Uint8Array(w*h);
+  for(let y=0;y<h;y++){
+    const y0 = Math.max(0, y-radius), y1 = Math.min(h-1, y+radius);
+    for(let x=0;x<w;x++){
+      const x0 = Math.max(0, x-radius), x1 = Math.min(w-1, x+radius);
+      const A = integral[y0*(w+1)+x0];
+      const B = integral[y0*(w+1)+(x1+1)];
+      const C = integral[(y1+1)*(w+1)+x0];
+      const D = integral[(y1+1)*(w+1)+(x1+1)];
+      const area = (x1-x0+1)*(y1-y0+1);
+      const mean = (D - B - C + A) / area;
+      out[y*w+x] = Math.max(0, Math.min(255, Math.round(mean * (1 - bias))));
+    }
+  }
+  return out;
 }
 
 function boxBlur(src,w,h,r){
@@ -381,62 +445,110 @@ function countComponents(mask,w,h,target){
 function optimizeMask(mask,w,h){
   const [mmW] = mmSize();
   const pxPerMm = w / mmW;
-  const bridgePx = Math.max(3, Math.round((+$('#bridgeMm').value) * pxPerMm));
-  let out = removeSmallComponents(mask, w, h, 1, bridgePx*bridgePx*0.35, false);
-  const result = bridgeBlackIslands(out, w, h, bridgePx);
+  const bridgePx = Math.max(2, Math.round((+$('#bridgeMm').value) * pxPerMm));
+  let out = mask.slice();
+  out = removeSmallComponents(out, w, h, 1, Math.max(10, Math.round(bridgePx*bridgePx*0.18)), false);
+  const result = stabilizeWhiteHoles(out, w, h, bridgePx);
   out = result.mask;
   out = majorityPass(out, w, h);
-  out = removeSmallComponents(out, w, h, 0, Math.max(10, Math.round(bridgePx*bridgePx*0.18)), true);
+  out = removeSmallComponents(out, w, h, 0, Math.max(8, Math.round(bridgePx*bridgePx*0.08)), true);
+  if($('#keepFrame').checked) out = preserveBorderFrame(out, w, h);
   return { mask: out, report: result.report, bridgePx };
 }
 
-function bridgeBlackIslands(mask,w,h,bridgePx){
+function stabilizeWhiteHoles(mask,w,h,bridgePx){
   const seen = new Uint8Array(w*h);
   const q = new Int32Array(w*h);
-  const comps = [];
-  for(let i=0;i<mask.length;i++){
-    if(seen[i] || mask[i]!==1) continue;
-    let head=0, tail=0;
-    q[tail++]=i; seen[i]=1;
-    let pts=[], sumX=0, sumY=0, touch=false;
-    while(head<tail){
-      const p=q[head++]; pts.push(p);
-      const y=(p/w)|0, x=p-y*w;
-      sumX += x; sumY += y;
-      if(x===0||y===0||x===w-1||y===h-1) touch=true;
-      if(x+1<w){const n=p+1; if(!seen[n]&&mask[n]===1){seen[n]=1;q[tail++]=n;}}
-      if(x>0){const n=p-1; if(!seen[n]&&mask[n]===1){seen[n]=1;q[tail++]=n;}}
-      if(y+1<h){const n=p+w; if(!seen[n]&&mask[n]===1){seen[n]=1;q[tail++]=n;}}
-      if(y>0){const n=p-w; if(!seen[n]&&mask[n]===1){seen[n]=1;q[tail++]=n;}}
-    }
-    comps.push({pts, touch, cx:sumX/pts.length, cy:sumY/pts.length, size:pts.length});
-  }
   const out = mask.slice();
-  let bridged=0, removed=0;
-  for(const c of comps){
-    if(c.touch) continue;
-    if(c.size < bridgePx*bridgePx*0.5){
-      for(const p of c.pts) out[p]=0;
+  let whiteComponents = 0, bridged = 0, removed = 0;
+
+  for(let i=0;i<mask.length;i++){
+    if(seen[i] || mask[i]!==0) continue;
+    let head=0, tail=0;
+    q[tail++] = i;
+    seen[i] = 1;
+    const pts = [];
+    const boundary = [];
+    let touch = false;
+    let minX = w, minY = h, maxX = 0, maxY = 0;
+    while(head<tail){
+      const p = q[head++];
+      pts.push(p);
+      const y = (p/w)|0, x = p - y*w;
+      if(x<minX) minX=x; if(x>maxX) maxX=x; if(y<minY) minY=y; if(y>maxY) maxY=y;
+      if(x===0||y===0||x===w-1||y===h-1) touch = true;
+      let isBoundary = false;
+      const ns = [p+1,p-1,p+w,p-w];
+      for(let k=0;k<4;k++){
+        const n = ns[k];
+        const nx = k===0 ? x+1 : k===1 ? x-1 : x;
+        const ny = k===2 ? y+1 : k===3 ? y-1 : y;
+        if(nx<0||ny<0||nx>=w||ny>=h) continue;
+        if(mask[n]===1) isBoundary = true;
+        if(!seen[n] && mask[n]===0){ seen[n]=1; q[tail++]=n; }
+      }
+      if(isBoundary) boundary.push(p);
+    }
+    if(touch) continue;
+    whiteComponents++;
+
+    const area = pts.length;
+    const bw = maxX-minX+1;
+    const bh = maxY-minY+1;
+    if(area < Math.max(8, bridgePx*bridgePx*0.12) || (bw <= bridgePx && bh <= bridgePx)){
+      for(const p of pts) out[p] = 1;
       removed++;
       continue;
     }
-    const dxLeft = c.cx;
-    const dxRight = w-1-c.cx;
-    const dyTop = c.cy;
-    const dyBottom = h-1-c.cy;
-    const options = [
-      {d:dxLeft, x:0, y:c.cy},
-      {d:dxRight, x:w-1, y:c.cy},
-      {d:dyTop, x:c.cx, y:0},
-      {d:dyBottom, x:c.cx, y:h-1}
-    ].sort((a,b)=>a.d-b.d);
-    drawThickLine(out, w, h, Math.round(c.cx), Math.round(c.cy), Math.round(options[0].x), Math.round(options[0].y), bridgePx);
-    bridged++;
+
+    const bridge = findNearestExitForWhiteHole(mask, w, h, boundary, pts, bridgePx);
+    if(bridge){
+      drawThickLine(out, w, h, bridge.x0, bridge.y0, bridge.x1, bridge.y1, Math.max(2, Math.round(bridgePx*0.75)), 0);
+      bridged++;
+    }
   }
-  return { mask: out, report: { components: comps.length, bridged, removed } };
+
+  return { mask: out, report: { components: whiteComponents, bridged, removed } };
 }
 
-function drawThickLine(mask,w,h,x0,y0,x1,y1,diameter){
+function findNearestExitForWhiteHole(mask,w,h,boundary,pts,bridgePx){
+  const holeSet = new Uint8Array(w*h);
+  for(const p of pts) holeSet[p] = 1;
+  const directions = [
+    [1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]
+  ];
+  let best = null;
+  const sampleStep = Math.max(1, Math.floor(boundary.length / 120));
+  const maxSearch = Math.max(bridgePx * 6, Math.round(Math.min(w,h) * 0.12));
+
+  for(let bi=0; bi<boundary.length; bi += sampleStep){
+    const p = boundary[bi];
+    const y = (p/w)|0, x = p - y*w;
+    for(const dir of directions){
+      const [dx,dy] = dir;
+      let step = 0;
+      let cx = x, cy = y;
+      let crossedBlack = false;
+      while(step < maxSearch){
+        cx += dx; cy += dy; step++;
+        if(cx<0||cy<0||cx>=w||cy>=h) break;
+        const idx = cy*w + cx;
+        if(holeSet[idx]) continue;
+        if(mask[idx]===1){ crossedBlack = true; continue; }
+        if(crossedBlack){
+          const score = step + (Math.abs(dx) + Math.abs(dy) > 1 ? 0.6 : 0);
+          if(!best || score < best.score){
+            best = { score, x0:x, y0:y, x1:cx, y1:cy };
+          }
+          break;
+        }
+      }
+    }
+  }
+  return best;
+}
+
+function drawThickLine(mask,w,h,x0,y0,x1,y1,diameter,value=1){
   const steps = Math.max(Math.abs(x1-x0), Math.abs(y1-y0), 1);
   const rad = Math.max(1, Math.floor(diameter/2));
   for(let s=0;s<=steps;s++){
@@ -447,7 +559,7 @@ function drawThickLine(mask,w,h,x0,y0,x1,y1,diameter){
       if(yy<0||yy>=h) continue;
       for(let xx=x-rad; xx<=x+rad; xx++){
         if(xx<0||xx>=w) continue;
-        if((xx-x)*(xx-x)+(yy-y)*(yy-y) <= rad*rad) mask[yy*w+xx] = 1;
+        if((xx-x)*(xx-x)+(yy-y)*(yy-y) <= rad*rad) mask[yy*w+xx] = value;
       }
     }
   }
@@ -543,7 +655,7 @@ $('#optimizeBtn').addEventListener('click', async ()=>{
   const result = optimizeMask(state.exportMask, state.exportW, state.exportH);
   state.exportMask = result.mask;
   state.report = {
-    mode: 'Technisch optimiert',
+    mode: 'Technische Prüfung abgeschlossen',
     components: result.report.components,
     bridged: result.report.bridged,
     removed: result.report.removed,
@@ -560,13 +672,13 @@ function updateValidation(){
     $('#validationText').textContent='Nach der Generierung wird die Schablone analysiert.';
     return;
   }
-  $('#validationTitle').textContent = state.report.mode === 'Technisch optimiert'
+  $('#validationTitle').textContent = state.report.mode === 'Technische Prüfung abgeschlossen'
     ? 'Technische Prüfung abgeschlossen'
     : 'Saubere Vorschau erzeugt';
-  if(state.report.mode === 'Technisch optimiert'){
-    $('#validationText').textContent = `Komponenten: ${state.report.components} · Brücken gesetzt: ${state.report.bridged} · kleine Inseln entfernt: ${state.report.removed}`;
+  if(state.report.mode === 'Technische Prüfung abgeschlossen'){
+    $('#validationText').textContent = `Weiße Inneninseln: ${state.report.components} · kurze Brücken gesetzt: ${state.report.bridged} · winzige Löcher entfernt: ${state.report.removed}`;
   } else {
-    $('#validationText').textContent = `Komponenten: ${state.report.components} · Rauschreduktion aktiv · Brücken noch nicht aggressiv gesetzt`;
+    $('#validationText').textContent = `Komponenten: ${state.report.components} · Detailerhalt aktiv · technische Stege noch nicht gesetzt`;
   }
 }
 
@@ -618,13 +730,13 @@ $('#exportJpgBtn').addEventListener('click',()=>{
   if(!state.exportMask) return;
   const tmp = document.createElement('canvas');
   renderMask(state.exportMask, tmp, state.exportW, state.exportH);
-  downloadData(tmp.toDataURL('image/jpeg', 0.96), 'etter-schablone-v2.jpg');
+  downloadData(tmp.toDataURL('image/jpeg', 0.96), 'etter-schablone-v3.jpg');
 });
 
 $('#exportSvgBtn').addEventListener('click',()=>{
   if(!state.exportMask) return;
   const svg = maskToSVG(state.exportMask, state.exportW, state.exportH, state.inverted);
-  downloadBlob(new Blob([svg], {type:'image/svg+xml'}), 'etter-schablone-v2.svg');
+  downloadBlob(new Blob([svg], {type:'image/svg+xml'}), 'etter-schablone-v3.svg');
 });
 
 $('#exportPdfBtn').addEventListener('click',()=>{
@@ -634,7 +746,7 @@ $('#exportPdfBtn').addEventListener('click',()=>{
   const jpeg = tmp.toDataURL('image/jpeg', 0.94);
   const [mmW,mmH] = mmSize();
   const pdf = buildPdfWithJpeg(jpeg, mmW, mmH, state.exportW, state.exportH);
-  downloadBlob(pdf, 'etter-schablone-v2.pdf');
+  downloadBlob(pdf, 'etter-schablone-v3.pdf');
 });
 
 function maskToSVG(mask,w,h,inverted){
