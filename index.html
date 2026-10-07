@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Etter Stencil Generator V1</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>Etter Stencil Generator <span>V1</span></h1>
+        <p>Interner Prototyp · Bild → Schablone · Bild → 5 ähnliche Varianten</p>
+      </div>
+      <div class="status" id="status">Bereit</div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel controls">
+        <section>
+          <h2>1. Modus</h2>
+          <div class="segmented">
+            <button class="mode-btn active" data-mode="stencil">Bild → Schablone</button>
+            <button class="mode-btn" data-mode="variants">5 ähnliche Varianten</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>2. Bild</h2>
+          <label class="upload">
+            <input id="fileInput" type="file" accept="image/png,image/jpeg" />
+            <span>JPG / PNG hochladen</span>
+          </label>
+          <div class="file-name" id="fileName">Noch kein Bild gewählt</div>
+        </section>
+
+        <section>
+          <h2>3. Einstellungen</h2>
+
+          <label>
+            Format
+            <select id="paperSize">
+              <option value="A4">A4</option>
+              <option value="A3">A3</option>
+              <option value="A2">A2</option>
+              <option value="A1">A1</option>
+              <option value="A0">A0</option>
+            </select>
+          </label>
+
+          <label>
+            Komplexität <output id="complexityOut">55</output>
+            <input id="complexity" type="range" min="0" max="100" value="55" />
+          </label>
+
+          <label>
+            Dichte <output id="densityOut">50</output>
+            <input id="density" type="range" min="0" max="100" value="50" />
+          </label>
+
+          <label>
+            Detailgrad <output id="detailOut">50</output>
+            <input id="detail" type="range" min="0" max="100" value="50" />
+          </label>
+
+          <label class="variant-only hidden">
+            Ähnlichkeit <output id="similarityOut">70</output>
+            <input id="similarity" type="range" min="0" max="100" value="70" />
+          </label>
+
+          <label class="variant-only hidden">
+            Zufälligkeit <output id="randomnessOut">40</output>
+            <input id="randomness" type="range" min="0" max="100" value="40" />
+          </label>
+        </section>
+
+        <section>
+          <h2>4. Stabilität</h2>
+          <div class="info-box">
+            Automatisch aktiv: Inselerkennung, Brücken, Mindestdetail-Filterung.
+          </div>
+          <label>
+            Min. Stegbreite
+            <select id="bridgeMm">
+              <option value="2">2,0 mm</option>
+              <option value="2.5" selected>2,5 mm</option>
+              <option value="3">3,0 mm</option>
+              <option value="3.5">3,5 mm</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="actions">
+          <button id="generateBtn" class="primary">Schablone erzeugen</button>
+          <button id="optimizeBtn">Schablone prüfen & optimieren</button>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <div class="toolbar">
+          <button id="zoomOutBtn">−</button>
+          <span id="zoomLabel">100%</span>
+          <button id="zoomInBtn">+</button>
+          <button id="invertBtn">Schwarz/Weiß tauschen</button>
+          <button id="eraserBtn">Radierer</button>
+          <button id="undoBtn">↶</button>
+          <button id="redoBtn">↷</button>
+        </div>
+
+        <div class="canvas-stage" id="canvasStage">
+          <canvas id="mainCanvas" width="900" height="1273"></canvas>
+          <div class="empty-state" id="emptyState">
+            <strong>Bild hochladen</strong>
+            <span>Danach kann die erste Schablone erzeugt werden.</span>
+          </div>
+        </div>
+
+        <div class="variants-wrap hidden" id="variantsWrap">
+          <h3>5 Varianten</h3>
+          <div class="variants" id="variants"></div>
+        </div>
+
+        <div class="bottom-bar">
+          <div>
+            <strong id="validationTitle">Noch nicht geprüft</strong>
+            <span id="validationText">Nach der Generierung wird die Schablone analysiert.</span>
+          </div>
+          <div class="export-buttons">
+            <button id="exportSvgBtn">SVG</button>
+            <button id="exportPdfBtn">PDF</button>
+            <button id="exportJpgBtn">JPEG</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
