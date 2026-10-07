@@ -2,16 +2,16 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Etter Stencil Generator V1</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Etter Stencil Generator V2</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <h1>Etter Stencil Generator <span>V1</span></h1>
-        <p>Interner Prototyp · Bild → Schablone · Bild → 5 ähnliche Varianten</p>
+        <h1>Etter Stencil Generator <span>V2</span></h1>
+        <p>Verbesserte Qualität · sauberere Motive · mobil nutzbar</p>
       </div>
       <div class="status" id="status">Bereit</div>
     </header>
@@ -29,8 +29,8 @@
         <section>
           <h2>2. Bild</h2>
           <label class="upload">
-            <input id="fileInput" type="file" accept="image/png,image/jpeg" />
-            <span>JPG / PNG hochladen</span>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" />
+            <span>Bild hochladen</span>
           </label>
           <div class="file-name" id="fileName">Noch kein Bild gewählt</div>
         </section>
@@ -50,36 +50,51 @@
           </label>
 
           <label>
-            Komplexität <output id="complexityOut">55</output>
-            <input id="complexity" type="range" min="0" max="100" value="55" />
+            Qualitätsmodus
+            <select id="qualityMode">
+              <option value="standard">Standard</option>
+              <option value="high" selected>Hoch</option>
+              <option value="max">Maximal</option>
+            </select>
           </label>
 
           <label>
-            Dichte <output id="densityOut">50</output>
-            <input id="density" type="range" min="0" max="100" value="50" />
+            Detailtreue <output id="detailOut">75</output>
+            <input id="detail" type="range" min="0" max="100" value="75" />
           </label>
 
           <label>
-            Detailgrad <output id="detailOut">50</output>
-            <input id="detail" type="range" min="0" max="100" value="50" />
+            Kontrast / Schwarzanteil <output id="contrastOut">55</output>
+            <input id="contrast" type="range" min="0" max="100" value="55" />
+          </label>
+
+          <label>
+            Reinigung / Glättung <output id="cleanupOut">35</output>
+            <input id="cleanup" type="range" min="0" max="100" value="35" />
           </label>
 
           <label class="variant-only hidden">
-            Ähnlichkeit <output id="similarityOut">70</output>
-            <input id="similarity" type="range" min="0" max="100" value="70" />
+            Variantenstärke <output id="variationOut">35</output>
+            <input id="variation" type="range" min="0" max="100" value="35" />
           </label>
 
-          <label class="variant-only hidden">
-            Zufälligkeit <output id="randomnessOut">40</output>
-            <input id="randomness" type="range" min="0" max="100" value="40" />
+          <label class="toggle-row">
+            <input id="keepText" type="checkbox" />
+            <span>Text möglichst mitnehmen</span>
+          </label>
+
+          <label class="toggle-row">
+            <input id="keepFrame" type="checkbox" checked />
+            <span>Rahmen erhalten</span>
           </label>
         </section>
 
         <section>
           <h2>4. Stabilität</h2>
           <div class="info-box">
-            Automatisch aktiv: Inselerkennung, Brücken, Mindestdetail-Filterung.
+            <strong>Wichtig:</strong> Beim Erzeugen steht die saubere Motivqualität im Vordergrund. Erst mit <em>Schablone prüfen &amp; optimieren</em> werden technische Anpassungen wie Inselentfernung und Brücken stärker angewendet.
           </div>
+
           <label>
             Min. Stegbreite
             <select id="bridgeMm">
@@ -93,7 +108,7 @@
 
         <section class="actions">
           <button id="generateBtn" class="primary">Schablone erzeugen</button>
-          <button id="optimizeBtn">Schablone prüfen & optimieren</button>
+          <button id="optimizeBtn">Schablone prüfen &amp; optimieren</button>
         </section>
       </aside>
 
@@ -112,7 +127,7 @@
           <canvas id="mainCanvas" width="900" height="1273"></canvas>
           <div class="empty-state" id="emptyState">
             <strong>Bild hochladen</strong>
-            <span>Danach kann die erste Schablone erzeugt werden.</span>
+            <span>Danach kann die verbesserte Schablone erzeugt werden.</span>
           </div>
         </div>
 
